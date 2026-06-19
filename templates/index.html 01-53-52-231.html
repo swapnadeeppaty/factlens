@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FactLens — AI Fact Checker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+<style>
+  /* ── Reset & tokens ─────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0a0a0f;
+    --surface:   #111118;
+    --border:    #1e1e2e;
+    --border2:   #2a2a3e;
+    --accent:    #e8ff47;
+    --accent2:   #47ffe8;
+    --text:      #e8e8f0;
+    --muted:     #6b6b85;
+    --true:      #47ff8a;
+    --false:     #ff4747;
+    --unver:     #ffb347;
+    --radius:    12px;
+    --mono:      'DM Mono', monospace;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Background grid noise ──────────────────────────────────────── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(232,255,71,0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(232,255,71,0.02) 1px, transparent 1px);
+    background-size: 48px 48px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── Layout ─────────────────────────────────────────────────────── */
+  .page {
+    position: relative;
+    z-index: 1;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 0 24px 80px;
+  }
+
+  /* ── Header ─────────────────────────────────────────────────────── */
+  header {
+    padding: 60px 0 48px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .logo-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(52px, 10vw, 80px);
+    letter-spacing: 2px;
+    color: var(--text);
+    line-height: 1;
+  }
+
+  .logo span {
+    color: var(--accent);
+  }
+
+  .tagline {
+    font-size: 13px;
+    font-weight: 300;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-family: var(--mono);
+  }
+
+  .header-pills {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+  }
+
+  .pill {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 100px;
+    border: 1px solid var(--border2);
+    color: var(--muted);
+    background: var(--surface);
+  }
+
+  /* ── Input card ─────────────────────────────────────────────────── */
+  .input-card {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .input-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+  }
+
+  .input-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border2);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px;
+    font-weight: 300;
+    line-height: 1.7;
+    padding: 14px 16px;
+    resize: vertical;
+    min-height: 100px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  textarea::placeholder { color: var(--muted); }
+
+  textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(232,255,71,0.06);
+  }
+
+  .char-counter {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    text-align: right;
+    margin-top: -8px;
+  }
+
+  .char-counter.warn { color: var(--unver); }
+
+  /* ── Button ─────────────────────────────────────────────────────── */
+  button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background: var(--accent);
+    color: #0a0a0f;
+    border: none;
+    border-radius: 8px;
+    padding: 14px 28px;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 18px;
+    letter-spacing: 1.5px;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+    width: 100%;
+  }
+
+  button:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(232,255,71,0.2);
+  }
+
+  button:active:not(:disabled) { transform: translateY(0); }
+
+  button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* ── Spinner ─────────────────────────────────────────────────────── */
+  .spinner {
+    width: 18px; height: 18px;
+    border: 2px solid rgba(10,10,15,0.3);
+    border-top-color: #0a0a0f;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: none;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  button.loading .spinner { display: block; }
+  button.loading .btn-text { opacity: 0.7; }
+
+  /* ── Status strip ───────────────────────────────────────────────── */
+  .status {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    padding: 10px 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    display: none;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .status.show { display: flex; }
+
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: pulse 1s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: 0.4; transform: scale(0.7); }
+  }
+
+  /* ── Result panel ───────────────────────────────────────────────── */
+  .result-panel {
+    margin-top: 28px;
+    display: none;
+    flex-direction: column;
+    gap: 20px;
+    animation: fadeUp 0.4s ease both;
+  }
+
+  .result-panel.show { display: flex; }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Verdict block ──────────────────────────────────────────────── */
+  .verdict-block {
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--surface);
+  }
+
+  .verdict-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .verdict-badge {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 2px;
+    padding: 4px 14px;
+    border-radius: 6px;
+    border: 2px solid currentColor;
+    white-space: nowrap;
+  }
+
+  .verdict-badge.TRUE  { color: var(--true);  background: rgba(71,255,138,0.07); }
+  .verdict-badge.FALSE { color: var(--false); background: rgba(255,71,71,0.07); }
+  .verdict-badge.UNVERIFIABLE { color: var(--unver); background: rgba(255,179,71,0.07); }
+
+  .confidence-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+  }
+
+  .conf-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .conf-bar-wrap {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    width: 100%;
+    max-width: 200px;
+  }
+
+  .conf-bar {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.8s cubic-bezier(0.4,0,0.2,1);
+    width: 0%;
+  }
+
+  .conf-bar.TRUE  { background: var(--true); }
+  .conf-bar.FALSE { background: var(--false); }
+  .conf-bar.UNVERIFIABLE { background: var(--unver); }
+
+  .conf-value {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  .verdict-explanation {
+    padding: 16px 22px;
+    font-size: 14px;
+    font-weight: 300;
+    color: var(--text);
+    line-height: 1.75;
+  }
+
+  /* ── Claim echo ─────────────────────────────────────────────────── */
+  .claim-echo {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    padding: 12px 22px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+  }
+
+  .claim-echo strong { color: var(--accent); flex-shrink: 0; }
+
+  /* ── Evidence section ───────────────────────────────────────────── */
+  .section-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    padding: 0 2px;
+  }
+
+  .evidence-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .evidence-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: border-color 0.2s;
+    position: relative;
+  }
+
+  .evidence-item:hover { border-color: var(--border2); }
+
+  .ev-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .ev-title {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent2);
+    font-weight: 500;
+  }
+
+  .ev-sim {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    background: var(--bg);
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+
+  .ev-text {
+    font-size: 13px;
+    font-weight: 300;
+    color: #b0b0c8;
+    line-height: 1.65;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .ev-link {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    width: fit-content;
+    transition: color 0.2s;
+  }
+
+  .ev-link:hover { color: var(--accent); }
+
+  .ev-link::after { content: '↗'; }
+
+  /* ── Error box ──────────────────────────────────────────────────── */
+  .error-box {
+    background: rgba(255,71,71,0.07);
+    border: 1px solid rgba(255,71,71,0.25);
+    border-radius: 8px;
+    padding: 14px 18px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--false);
+    display: none;
+    margin-top: 20px;
+  }
+
+  .error-box.show { display: block; }
+
+  /* ── Footer ─────────────────────────────────────────────────────── */
+  footer {
+    margin-top: 60px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .footer-brand {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 18px;
+    letter-spacing: 1px;
+    color: var(--muted);
+  }
+
+  .footer-brand span { color: var(--accent); }
+
+  .footer-note {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  /* ── Responsive ─────────────────────────────────────────────────── */
+  @media (max-width: 520px) {
+    .logo { font-size: 48px; }
+    .input-card { padding: 18px; }
+    .verdict-header { flex-wrap: wrap; }
+  }
+</style>
+</head>
+
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <header>
+    <div class="logo-row">
+      <div class="logo">Fact<span>Lens</span></div>
+    </div>
+    <div class="tagline">AI-powered claim verification engine</div>
+    <div class="header-pills">
+      <span class="pill">Google Gemini</span>
+      <span class="pill">Wikipedia</span>
+      <span class="pill">Semantic Search</span>
+    </div>
+  </header>
+
+  <!-- Input card -->
+  <div class="input-card">
+    <div class="input-label">Enter a claim to verify</div>
+    <textarea
+      id="claimInput"
+      placeholder="e.g. The Great Wall of China is visible from space with the naked eye."
+      maxlength="1000"
+    ></textarea>
+    <div class="char-counter" id="charCount">0 / 1000</div>
+
+    <div class="status" id="statusStrip">
+      <div class="status-dot"></div>
+      <span id="statusText">Analysing claim…</span>
+    </div>
+
+    <button id="checkBtn" onclick="runFactCheck()">
+      <div class="spinner"></div>
+      <span class="btn-text">Verify Claim</span>
+    </button>
+  </div>
+
+  <!-- Error box -->
+  <div class="error-box" id="errorBox"></div>
+
+  <!-- Result panel -->
+  <div class="result-panel" id="resultPanel">
+
+    <!-- Verdict block -->
+    <div>
+      <div class="verdict-block" id="verdictBlock">
+        <div class="verdict-header">
+          <div class="verdict-badge" id="verdictBadge">—</div>
+          <div class="confidence-row">
+            <div class="conf-label">Confidence</div>
+            <div class="conf-bar-wrap">
+              <div class="conf-bar" id="confBar"></div>
+            </div>
+            <div class="conf-value" id="confValue">—</div>
+          </div>
+        </div>
+        <div class="verdict-explanation" id="verdictExplanation"></div>
+        <div class="claim-echo" id="claimEcho">
+          <strong>CLAIM</strong>
+          <span id="claimEchoText"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Evidence -->
+    <div class="section-title" id="evidenceTitle"></div>
+    <div class="evidence-list" id="evidenceList"></div>
+
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <div class="footer-brand">Fact<span>Lens</span></div>
+    <div class="footer-note">Results are AI-generated. Always cross-check important claims.</div>
+  </footer>
+
+</div>
+
+<script>
+  // ── Char counter ──────────────────────────────────────────────────
+  const textarea = document.getElementById('claimInput');
+  const charCount = document.getElementById('charCount');
+
+  textarea.addEventListener('input', () => {
+    const len = textarea.value.length;
+    charCount.textContent = `${len} / 1000`;
+    charCount.classList.toggle('warn', len > 850);
+  });
+
+  textarea.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) runFactCheck();
+  });
+
+  // ── Status messages ───────────────────────────────────────────────
+  const statusMessages = [
+    'Extracting key concepts…',
+    'Searching Wikipedia…',
+    'Ranking evidence by relevance…',
+    'Consulting Gemini AI…',
+    'Compiling verdict…',
+  ];
+
+  let statusInterval = null;
+
+  function startStatus() {
+    const strip = document.getElementById('statusStrip');
+    const txt   = document.getElementById('statusText');
+    strip.classList.add('show');
+    let i = 0;
+    txt.textContent = statusMessages[0];
+    statusInterval = setInterval(() => {
+      i = (i + 1) % statusMessages.length;
+      txt.textContent = statusMessages[i];
+    }, 2200);
+  }
+
+  function stopStatus() {
+    clearInterval(statusInterval);
+    document.getElementById('statusStrip').classList.remove('show');
+  }
+
+  // ── Verdict parser ────────────────────────────────────────────────
+  function parseVerdict(raw) {
+    const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+    let verdict = 'UNVERIFIABLE', confidence = 0, explanation = raw;
+
+    for (const line of lines) {
+      if (line.startsWith('VERDICT:')) {
+        const v = line.replace('VERDICT:', '').trim().toUpperCase();
+        if (['TRUE', 'FALSE', 'UNVERIFIABLE'].includes(v)) verdict = v;
+      } else if (line.startsWith('CONFIDENCE:')) {
+        confidence = parseInt(line.replace('CONFIDENCE:', '').trim()) || 0;
+      } else if (line.startsWith('EXPLANATION:')) {
+        explanation = line.replace('EXPLANATION:', '').trim();
+      }
+    }
+
+    // Fallback: scan first line for verdict keyword
+    if (!lines.some(l => l.startsWith('VERDICT:'))) {
+      const first = lines[0] ? lines[0].toUpperCase() : '';
+      if (first.includes('TRUE'))  verdict = 'TRUE';
+      if (first.includes('FALSE')) verdict = 'FALSE';
+    }
+
+    return { verdict, confidence, explanation };
+  }
+
+  // ── Main function ─────────────────────────────────────────────────
+  async function runFactCheck() {
+    const claim = textarea.value.trim();
+    if (!claim) { textarea.focus(); return; }
+
+    // Reset UI
+    document.getElementById('errorBox').classList.remove('show');
+    document.getElementById('resultPanel').classList.remove('show');
+
+    const btn = document.getElementById('checkBtn');
+    btn.classList.add('loading');
+    btn.disabled = true;
+    startStatus();
+
+    try {
+      const res = await fetch('/factcheck', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ claim }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        showError(data.error || `Server error (${res.status})`);
+        return;
+      }
+
+      renderResult(claim, data);
+
+    } catch (err) {
+      showError('Network error — could not reach the server. Please try again.');
+    } finally {
+      btn.classList.remove('loading');
+      btn.disabled = false;
+      stopStatus();
+    }
+  }
+
+  function showError(msg) {
+    const box = document.getElementById('errorBox');
+    box.textContent = '⚠ ' + msg;
+    box.classList.add('show');
+  }
+
+  function renderResult(claim, data) {
+    const { verdict, confidence, explanation } = parseVerdict(data.verdict || '');
+
+    // Badge
+    const badge = document.getElementById('verdictBadge');
+    badge.textContent = verdict;
+    badge.className = `verdict-badge ${verdict}`;
+
+    // Confidence bar
+    const bar = document.getElementById('confBar');
+    bar.className = `conf-bar ${verdict}`;
+    setTimeout(() => { bar.style.width = confidence + '%'; }, 50);
+    document.getElementById('confValue').textContent = confidence + '%';
+
+    // Explanation
+    document.getElementById('verdictExplanation').textContent = explanation;
+
+    // Claim echo
+    document.getElementById('claimEchoText').textContent = claim;
+
+    // Evidence
+    const evTitle = document.getElementById('evidenceTitle');
+    const evList  = document.getElementById('evidenceList');
+    const evidence = (data.evidence || []).filter(e => e.text);
+
+    if (evidence.length > 0) {
+      evTitle.textContent = `Supporting Evidence (${evidence.length} source${evidence.length > 1 ? 's' : ''})`;
+      evList.innerHTML = evidence.map(ev => `
+        <div class="evidence-item">
+          <div class="ev-meta">
+            <span class="ev-title">${escHtml(ev.title || 'Wikipedia')}</span>
+            <span class="ev-sim">sim ${(ev.sim * 100).toFixed(1)}%</span>
+          </div>
+          <div class="ev-text">${escHtml(ev.text)}</div>
+          ${ev.url ? `<a class="ev-link" href="${escHtml(ev.url)}" target="_blank" rel="noopener">Wikipedia article</a>` : ''}
+        </div>
+      `).join('');
+    } else {
+      evTitle.textContent = '';
+      evList.innerHTML = '';
+    }
+
+    // Show panel
+    document.getElementById('resultPanel').classList.add('show');
+    document.getElementById('resultPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function escHtml(str) {
+    return String(str)
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;');
+  }
+</script>
+</body>
+</html>
