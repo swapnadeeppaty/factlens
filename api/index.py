@@ -27,11 +27,22 @@ if GEMINI_API_KEY:
 else:
     print("\n[ERROR] GEMINI_API_KEY not found!\n")
 
-# ── Load models once at startup ────────────────────────────────────────────────
-print("[LOAD] Loading spaCy and SentenceTransformer...")
-nlp = spacy.load("en_core_web_sm")
-embedder = SentenceTransformer("all-mpnet-base-v2")
-print("[LOAD] All models ready.\n")
+# ── Lazy-loaded models ─────────────────────────────────────────────────────────
+nlp = None
+embedder = None
+
+def load_models():
+    global nlp, embedder
+
+    if nlp is None:
+        print("[LOAD] Loading spaCy...")
+        nlp = spacy.load("en_core_web_sm")
+
+    if embedder is None:
+        print("[LOAD] Loading SentenceTransformer...")
+        embedder = SentenceTransformer("all-MiniLM-L6-v2")
+
+    print("[LOAD] All models ready.\n")
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -220,6 +231,9 @@ def factcheck():
         print(f"[CLAIM] {claim}")
         print(f"{'='*50}")
 
+        # Load heavy models only when the first request arrives
+        load_models()
+
         # Step 1 — extract keywords
         keywords = extract_keywords_with_gemini(claim)
         if not keywords:
@@ -229,7 +243,7 @@ def factcheck():
                 "evidence": []
             })
 
-        # Step 2 — fetch from all sources in parallel
+        # Step 2 — fetch from all sources
         snippets = []
 
         # Wikipedia for each keyword
