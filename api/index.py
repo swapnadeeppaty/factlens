@@ -3,11 +3,10 @@ load_dotenv()
 
 import os
 import requests
-import spacy
 import wikipedia
 import faiss
 import numpy as np
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 import google.generativeai as genai
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
@@ -27,20 +26,15 @@ if GEMINI_API_KEY:
 else:
     print("\n[ERROR] GEMINI_API_KEY not found!\n")
 
-# ── Lazy-loaded models ─────────────────────────────────────────────────────────
-nlp = None
+# ── Lazy-loaded embedder ───────────────────────────────────────────────────────
 embedder = None
 
 def load_models():
-    global nlp, embedder
-
-    if nlp is None:
-        print("[LOAD] Loading spaCy...")
-        nlp = spacy.load("en_core_web_sm")
+    global embedder
 
     if embedder is None:
-        print("[LOAD] Loading SentenceTransformer...")
-        embedder = SentenceTransformer("all-MiniLM-L6-v2")
+        print("[LOAD] Loading FastEmbed model...")
+        embedder = TextEmbedding("BAAI/bge-small-en-v1.5")
 
     print("[LOAD] All models ready.\n")
 
@@ -144,33 +138,40 @@ def build_index(snippets):
     if not filtered:
         raise ValueError("No valid snippets to build index.")
 
-    texts  = [s["text"]   for s in filtered]
-    urls   = [s["url"]    for s in filtered]
-    titles = [s["title"]  for s in filtered]
-    sources= [s.get("source", "") for s in filtered]
+    texts = [s["text"] for s in filtered]
+    urls = [s["url"] for s in filtered]
+    titles = [s["title"] for s in filtered]
+    sources = [s.get("source", "") for s in filtered]
 
-    embs = embedder.encode(texts, convert_to_numpy=True).astype("float32")
+    embs = np.asarray(list(embedder.embed(texts)), dtype="float32")
+    if embs.ndim == 1:
+        embs = embs.reshape(1, -1)
+
     faiss.normalize_L2(embs)
-    dim  = embs.shape[1]
+    dim = embs.shape[1]
     index = faiss.IndexFlatIP(dim)
     index.add(embs)
     return index, embs, texts, urls, titles, sources
 
 
 def semantic_search(query, index, texts, urls, titles, sources, k=5):
-    k     = min(k, len(texts))
-    q_emb = embedder.encode([query], convert_to_numpy=True).astype("float32")
+    k = min(k, len(texts))
+    q_emb = np.asarray(list(embedder.embed([query])), dtype="float32")
+    if q_emb.ndim == 1:
+        q_emb = q_emb.reshape(1, -1)
+
     if np.linalg.norm(q_emb) != 0:
         faiss.normalize_L2(q_emb)
-    D, I  = index.search(q_emb, k)
+
+    D, I = index.search(q_emb, k)
     results = []
     for score, idx in zip(D[0], I[0]):
         if score > 0:
             results.append({
-                "sim":    float(score),
-                "text":   texts[idx],
-                "url":    urls[idx],
-                "title":  titles[idx],
+                "sim": float(score),
+                "text": texts[idx],
+                "url": urls[idx],
+                "title": titles[idx],
                 "source": sources[idx],
             })
     return results
@@ -220,7 +221,7 @@ def factcheck():
     if not GEMINI_API_KEY:
         return jsonify({"error": "GEMINI_API_KEY not set."}), 500
 
-    data  = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True) or {}
     claim = (data.get("claim") or "").strip()
 
     if not claim:
@@ -231,7 +232,7 @@ def factcheck():
         print(f"[CLAIM] {claim}")
         print(f"{'='*50}")
 
-        # Load heavy models only when the first request arrives
+        # Load the lighter model only when the first request arrives
         load_models()
 
         # Step 1 — extract keywords
@@ -279,7 +280,7 @@ def factcheck():
 
         # Step 3 — build index and search
         index, embs, texts, urls, titles, sources = build_index(valid_snippets)
-        results  = semantic_search(claim, index, texts, urls, titles, sources, k=5)
+        results = semantic_search(claim, index, texts, urls, titles, sources, k=5)
         relevant = [r for r in results if r["sim"] > 0.3]
 
         # Step 4 — verdict
@@ -289,7 +290,7 @@ def factcheck():
             verdict = gemini_verdict(claim, relevant)
 
         return jsonify({
-            "claim":   claim,
+            "claim": claim,
             "verdict": verdict,
             "evidence": results
         })
